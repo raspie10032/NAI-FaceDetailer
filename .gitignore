@@ -1,0 +1,29 @@
+# Virtual environment
+.venv/
+
+# Config & user data
+config.json
+presets.json
+art_presets.json
+
+# Output & models (large files)
+models/*.gguf
+models/*.bin
+models/*.safetensors
+*.pt
+bin/
+
+# Generated output
+output/
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db

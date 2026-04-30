@@ -1,0 +1,11 @@
+customtkinter
+pillow
+requests
+python-dotenv
+numpy
+llama-cpp-python
+ultralytics
+segment-anything
+huggingface-hub
+torch
+opencv-python
