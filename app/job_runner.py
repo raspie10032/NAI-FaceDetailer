@@ -20,7 +20,8 @@ from PIL import Image
 from core import prompt_builder
 from core.face_pipeline import FacePipeline
 from core.nai_client import (
-    post_nai, zip_to_pil, build_t2i_payload, build_inpaint_payload,
+    post_nai, zip_to_pil, build_t2i_payload, build_i2i_payload,
+    build_inpaint_payload,
 )
 from core.settings import resolve_wildcards, get_output_dir
 
@@ -98,6 +99,44 @@ class FaceJob:
 
 
 @dataclass
+class I2IJob:
+    token: str
+    image: Image.Image
+    model: str
+    prompt: str
+    neg_prompt: str
+    width: int
+    height: int
+    steps: int
+    cfg: float
+    seed: int
+    sampler: str
+    scheduler: str
+    cfg_rescale: float
+    strength: float = 0.7
+
+
+@dataclass
+class InpaintJob:
+    token: str
+    image: Image.Image
+    mask: Image.Image
+    model: str
+    prompt: str
+    neg_prompt: str
+    width: int
+    height: int
+    steps: int
+    cfg: float
+    seed: int
+    sampler: str
+    scheduler: str
+    cfg_rescale: float
+    wildcard_dir: str = ""
+    strength: float = 0.7
+
+
+@dataclass
 class JobCallbacks:
     """Hooks invoked from the worker thread. UI implementations must
     marshal back onto the Tk main thread themselves."""
@@ -134,6 +173,12 @@ class JobRunner:
 
     def start_face(self, job: FaceJob, cb: JobCallbacks):
         return self._start(self._run_face_job, job, cb)
+
+    def start_i2i(self, job: I2IJob, cb: JobCallbacks):
+        return self._start(self._run_i2i_job, job, cb)
+
+    def start_inpaint(self, job: InpaintJob, cb: JobCallbacks):
+        return self._start(self._run_inpaint_job, job, cb)
 
     # ── internals ──────────────────────────────────────────────────
 
@@ -233,6 +278,55 @@ class JobRunner:
             cb.on_status("완료")
         except Exception as e:
             print(f"[JobRunner] Face error: {e}")
+            cb.on_error(str(e))
+        finally:
+            cb.on_done()
+
+    def _run_i2i_job(self, job: I2IJob, cb: JobCallbacks):
+        try:
+            cb.on_status("NAI API 호출 중")
+            seed = self._seed(job.seed)
+            payload = build_i2i_payload(
+                job.model, job.prompt, job.neg_prompt,
+                job.width, job.height, job.steps, job.cfg, seed,
+                job.strength, _b64(job.image),
+                sampler=job.sampler, scheduler=job.scheduler,
+                cfg_rescale=job.cfg_rescale,
+            )
+            payload["parameters"]["extra_noise_seed"] = seed
+            if "parameters" in payload and "v4_prompt" in payload["parameters"]:
+                payload["parameters"]["v4_prompt"]["caption"]["base_caption"] = job.prompt
+            pil, raw = zip_to_pil(post_nai(job.token, payload))
+            cb.on_result("i2i", pil, raw)
+            _autosave(raw, prefix="NAI")
+            cb.on_status("완료")
+        except Exception as e:
+            print(f"[JobRunner] I2I error: {e}")
+            cb.on_error(str(e))
+        finally:
+            cb.on_done()
+
+    def _run_inpaint_job(self, job: InpaintJob, cb: JobCallbacks):
+        try:
+            cb.on_status("NAI API 호출 중")
+            prompt = resolve_wildcards(job.prompt, job.wildcard_dir)
+            seed = self._seed(job.seed)
+            payload = build_inpaint_payload(
+                job.model, prompt, job.neg_prompt,
+                job.width, job.height, job.steps, job.cfg, seed,
+                job.strength, _b64(job.image), _b64(job.mask),
+                sampler=job.sampler, scheduler=job.scheduler,
+                cfg_rescale=job.cfg_rescale,
+            )
+            payload["parameters"]["extra_noise_seed"] = seed
+            if "parameters" in payload and "v4_prompt" in payload["parameters"]:
+                payload["parameters"]["v4_prompt"]["caption"]["base_caption"] = prompt
+            pil, raw = zip_to_pil(post_nai(job.token, payload))
+            cb.on_result("inpaint", pil, raw)
+            _autosave(raw, prefix="NAI_inpaint")
+            cb.on_status("완료")
+        except Exception as e:
+            print(f"[JobRunner] Inpaint error: {e}")
             cb.on_error(str(e))
         finally:
             cb.on_done()

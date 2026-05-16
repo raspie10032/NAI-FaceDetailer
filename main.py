@@ -6,6 +6,8 @@ from i18n import t
 from tkinter import filedialog
 from ui.token import TokenScreen
 from ui.t2i import T2IScreen
+from ui.i2i import I2IScreen
+from ui.inpaint import InpaintScreen
 from ui.face_detailer import FaceDetailerScreen
 
 class NAIStudioApp(ctk.CTk):
@@ -34,7 +36,7 @@ class NAIStudioApp(ctk.CTk):
         ctk.CTkLabel(self.sidebar, text="NAI FaceDetailer", font=ctk.CTkFont(size=32, weight="bold")).pack(pady=(60, 50))
 
         self.nav_buttons = {}
-        for label, name in [("T2I", "T2I"), ("Face Detailer", "FaceDetailer")]:
+        for label, name in [("T2I", "T2I"), ("I2I", "I2I"), ("Inpaint", "Inpaint"), ("Face Detailer", "FaceDetailer")]:
             btn = ctk.CTkButton(self.sidebar, text=label, anchor="w", fg_color="transparent", 
                                 hover_color=("gray75", "gray30"), height=60, corner_radius=10,
                                 font=ctk.CTkFont(size=18, weight="bold"),
@@ -133,7 +135,8 @@ class NAIStudioApp(ctk.CTk):
             v.configure(fg_color=("gray85", "gray35") if k == name else "transparent")
 
         if name not in self.frames:
-            cls = {"Token": TokenScreen, "T2I": T2IScreen, "FaceDetailer": FaceDetailerScreen}.get(name)
+            cls = {"Token": TokenScreen, "T2I": T2IScreen, "I2I": I2IScreen,
+                   "Inpaint": InpaintScreen, "FaceDetailer": FaceDetailerScreen}.get(name)
             if not cls: return
             frame = cls(parent=self.main_container, controller=self, **kwargs)
             self.frames[name] = frame

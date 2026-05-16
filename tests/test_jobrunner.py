@@ -6,7 +6,9 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app.job_runner as jr
-from app.job_runner import JobRunner, T2IJob, FaceJob, JobCallbacks
+from app.job_runner import (
+    JobRunner, T2IJob, FaceJob, I2IJob, InpaintJob, JobCallbacks,
+)
 from core.tipo_engine import _filter_ban_tags
 
 
@@ -113,6 +115,42 @@ def test_face_job_runs():
         )
         r._run_face_job(job, rec.callbacks())
         assert rec.results == ["face"]
+        assert rec.done == 1
+    finally:
+        _restore(orig)
+
+
+def test_i2i_job_runs():
+    orig = _patch(None)
+    try:
+        r = JobRunner()
+        rec = _Recorder()
+        job = I2IJob(
+            token="t", image=_img(), model="nai-diffusion-3",
+            prompt="p", neg_prompt="n", width=64, height=64, steps=28,
+            cfg=6.0, seed=-1, sampler="k_euler_ancestral",
+            scheduler="karras", cfg_rescale=0.0,
+        )
+        r._run_i2i_job(job, rec.callbacks())
+        assert rec.results == ["i2i"]
+        assert rec.done == 1
+    finally:
+        _restore(orig)
+
+
+def test_inpaint_job_runs():
+    orig = _patch(None)
+    try:
+        r = JobRunner()
+        rec = _Recorder()
+        job = InpaintJob(
+            token="t", image=_img(), mask=_img().convert("L"),
+            model="nai-diffusion-3", prompt="p", neg_prompt="n",
+            width=64, height=64, steps=28, cfg=6.0, seed=1,
+            sampler="k_euler_ancestral", scheduler="karras", cfg_rescale=0.0,
+        )
+        r._run_inpaint_job(job, rec.callbacks())
+        assert rec.results == ["inpaint"]
         assert rec.done == 1
     finally:
         _restore(orig)

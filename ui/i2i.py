@@ -1,53 +1,67 @@
 import customtkinter as ctk
-import os
-import base64
-import io
-import random
-import threading
-from PIL import Image
-from datetime import datetime
 from tkinter import filedialog
-from core.nai_client import post_nai, zip_to_pil, build_i2i_payload
+from PIL import Image
+
+from app.job_runner import I2IJob, JobCallbacks
 from ui.base import BaseScreen
 from i18n import t
 
-def pil_to_base64(img):
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
 
 class I2IScreen(BaseScreen):
     def __init__(self, parent, controller, image=None):
         super().__init__(parent, controller)
         self.input_image = image
+        self.result_image = None
+        self.result_raw = None
+        self.is_busy = False
 
-        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        left_panel = ctk.CTkScrollableFrame(self, fg_color=("#f5f5f5", "#0f0f0f"))
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        # ── Left: Controls ──────────────────────────────────
+        self.left_panel = ctk.CTkScrollableFrame(self, width=380, fg_color=("#f5f5f5", "#0f0f0f"))
+        self.left_panel.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-        self.load_btn = ctk.CTkButton(left_panel, text=t("load_image"), command=self.load_image)
-        self.load_btn.pack(fill="x", pady=10)
+        ctk.CTkButton(self.left_panel, text=t("load_image"), command=self.load_image).pack(fill="x", padx=10, pady=10)
 
-        self.input_label = ctk.CTkLabel(left_panel, text=t("no_input_image"), height=200)
-        self.input_label.pack(fill="x", pady=10)
+        self.input_label = ctk.CTkLabel(self.left_panel, text=t("no_input_image"), height=200, fg_color=("#e0e0e0", "#151515"), corner_radius=10)
+        self.input_label.pack(fill="x", padx=10, pady=10)
         if self.input_image:
             self.display_input_image(self.input_image)
 
-        ctk.CTkLabel(left_panel, text=t("prompt")).pack(anchor="w")
-        self.prompt_txt = ctk.CTkTextbox(left_panel, height=80)
-        self.prompt_txt.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(self.left_panel, text=t("prompt"), font=("", 11, "bold")).pack(anchor="w", padx=10)
+        self.prompt_txt = ctk.CTkTextbox(self.left_panel, height=80)
+        self.prompt_txt.pack(fill="x", padx=10, pady=(0, 10))
 
-        ctk.CTkLabel(left_panel, text=t("neg_prompt")).pack(anchor="w")
-        self.neg_prompt_txt = ctk.CTkTextbox(left_panel, height=60)
-        self.neg_prompt_txt.pack(fill="x", pady=(0, 10))
-        self.neg_prompt_txt.insert("1.0", "lowres, {bad}, error, fewer, extra, missing, worst quality, jpeg artifacts, blurry")
+        ctk.CTkLabel(self.left_panel, text=t("neg_prompt"), font=("", 11, "bold")).pack(anchor="w", padx=10)
+        self.neg_prompt_txt = ctk.CTkTextbox(self.left_panel, height=60)
+        self.neg_prompt_txt.pack(fill="x", padx=10, pady=(0, 10))
+        self.neg_prompt_txt.insert("1.0", "lowres, bad anatomy, error, fewer, extra, missing, worst quality, jpeg artifacts, blurry")
 
-        ctk.CTkLabel(left_panel, text=t("strength")).pack(anchor="w", pady=(10,0))
-        self.strength_slider = ctk.CTkSlider(left_panel, from_=0.0, to=1.0, number_of_steps=100)
-        self.strength_slider.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(self.left_panel, text=t("strength"), font=("", 11, "bold")).pack(anchor="w", padx=10)
+        self.strength_slider = ctk.CTkSlider(self.left_panel, from_=0.0, to=1.0, number_of_steps=100)
         self.strength_slider.set(0.7)
+        self.strength_slider.pack(fill="x", padx=10, pady=(0, 10))
+
+        # ── Right: Result ───────────────────────────────────
+        self.result_panel = ctk.CTkFrame(self, corner_radius=0, fg_color=("#e8e8e8", "#111111"))
+        self.result_panel.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        self.result_panel.grid_rowconfigure(0, weight=1)
+        self.result_panel.grid_columnconfigure(0, weight=1)
+
+        self.img_label = ctk.CTkLabel(self.result_panel, text=t("waiting_result"))
+        self.img_label.grid(row=0, column=0, sticky="nsew")
+
+        r_btn_row = ctk.CTkFrame(self.result_panel, fg_color="transparent")
+        r_btn_row.grid(row=1, column=0, sticky="ew", pady=10)
+        self.save_btn = ctk.CTkButton(r_btn_row, text=t("save_short"), state="disabled", command=self.controller.save_result)
+        self.save_btn.pack(side="left", expand=True, padx=5)
+
+    def set_params(self, image=None, **kwargs):
+        if image is not None:
+            self.input_image = image
+            self.display_input_image(image)
 
     def load_image(self):
         path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.webp")])
@@ -57,77 +71,81 @@ class I2IScreen(BaseScreen):
 
     def display_input_image(self, pil_img):
         w, h = pil_img.size
-        ratio = min(200/w, 200/h)
-        new_w, new_h = int(w * ratio), int(h * ratio)
-        self._input_ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(new_w, new_h))
-        self.input_label.configure(image=self._input_ctk_img, text="")
+        ratio = min(340 / w, 220 / h)
+        img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(int(w * ratio), int(h * ratio)))
+        self.input_label.configure(image=img, text="")
+
+    def display_result(self, pil_img, raw_bytes):
+        self.result_image = pil_img
+        self.result_raw = raw_bytes
+        self.save_btn.configure(state="normal")
+        self._render_image()
+
+    def _render_image(self):
+        if not self.result_image:
+            return
+        w, h = self.result_image.size
+        pw = self.result_panel.winfo_width()
+        ph = self.result_panel.winfo_height() - 60
+        if pw < 10 or ph < 10:
+            self.after(100, self._render_image)
+            return
+        ratio = min(pw / w, ph / h)
+        img = ctk.CTkImage(light_image=self.result_image, dark_image=self.result_image, size=(int(w * ratio), int(h * ratio)))
+        self.img_label.configure(image=img, text="")
+
+    def _set_status(self, text):
+        self.after(0, lambda: self.controller.status_label.configure(text=text))
+
+    def _set_busy(self, busy):
+        self.is_busy = busy
+        self.controller.set_gen_btn_state("disabled", t("generating")) if busy \
+            else self.controller.set_gen_btn_state("normal")
 
     def generate(self):
+        runner = self.controller.job_runner
+        if runner.running:
+            runner.stop()
+            self._set_status("Stopping")
+            return
         if not self.input_image:
-            print("Error: Load an image first.")
+            print("[I2I] Load an image first.")
             return
-        
         token = self.config.get("nai_token")
-        if not token: return
-
-        self.controller.gen_btn.configure(state="disabled", text=t("generating"))
-        
-        try:
-            prompt = self.prompt_txt.get("1.0", "end-1c")
-            neg_prompt = self.neg_prompt_txt.get("1.0", "end-1c")
-            
-            w, h = self.input_image.size
-            width = (w // 64) * 64
-            height = (h // 64) * 64
-
-            steps = int(self.controller.shared["steps_var"].get())
-            cfg = float(self.controller.shared["cfg_var"].get())
-            seed = int(self.controller.shared["seed_var"].get())
-            if seed == -1:
-                seed = random.randint(0, 2**31 - 1)
-            cfg_rescale = float(self.controller.shared["cfg_rescale_var"].get())
-            sampler = self.controller.shared["sampler_var"].get()
-            scheduler = self.controller.shared["scheduler_var"].get()
-            model = self.controller.shared["model_var"].get()
-            strength = self.strength_slider.get()
-
-            image_b64 = pil_to_base64(self.input_image)
-            
-            payload = build_i2i_payload(
-                model, prompt, neg_prompt,
-                width, height, steps, cfg, seed, strength, image_b64,
-                sampler=sampler, scheduler=scheduler, cfg_rescale=cfg_rescale
-            )
-            payload["parameters"]["extra_noise_seed"] = seed
-
-        except ValueError as e:
-            print(f"Invalid input: {e}")
-            self.controller.gen_btn.configure(state="normal", text="Generate")
+        if not token:
             return
 
-        def worker():
-            try:
-                zip_bytes = post_nai(token, payload)
-                pil_img, raw_bytes = zip_to_pil(zip_bytes)
-                self.after(0, lambda: self.controller.display_result(pil_img, raw_bytes))
-                self.after(0, lambda: self.auto_save(raw_bytes))
-            except Exception as e:
-                print(f"I2I failed: {e}")
-            finally:
-                self.after(0, lambda: self.controller.gen_btn.configure(state="normal", text="Generate"))
+        shared = self.controller.shared
+        w, h = self.input_image.size
+        try:
+            seed = int(shared["seed_var"].get())
+        except ValueError:
+            seed = -1
 
-        threading.Thread(target=worker, daemon=True).start()
+        job = I2IJob(
+            token=token,
+            image=self.input_image,
+            model=shared["model_var"].get(),
+            prompt=self.prompt_txt.get("1.0", "end-1c"),
+            neg_prompt=self.neg_prompt_txt.get("1.0", "end-1c"),
+            width=(w // 64) * 64,
+            height=(h // 64) * 64,
+            steps=int(shared["steps_var"].get()),
+            cfg=float(shared["cfg_var"].get()),
+            seed=seed,
+            sampler=shared["sampler_var"].get(),
+            scheduler=shared["scheduler_var"].get(),
+            cfg_rescale=float(shared["cfg_rescale_var"].get()),
+            strength=self.strength_slider.get(),
+        )
 
-    def auto_save(self, raw_bytes):
-        if not raw_bytes: return
-        base_dir = os.path.join(os.path.expanduser("~"), "Downloads", "NAI")
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        full_path = os.path.join(base_dir, date_str)
-        os.makedirs(full_path, exist_ok=True)
-        
-        time_str = datetime.now().strftime("%y%m%d_%H%M%S")
-        filename = f"NAI_{time_str}.png"
-        save_path = os.path.join(full_path, filename)
-        with open(save_path, "wb") as f:
-            f.write(raw_bytes)
-        print(f"Saved to {save_path}")
+        cb = JobCallbacks(
+            on_status=lambda text: self._set_status(text),
+            on_result=lambda stage, pil, raw: self.after(
+                0, lambda: self.controller.display_result(pil, raw)),
+            on_error=lambda msg: self._set_status(f"Error: {msg[:30]}"),
+            on_done=lambda: self.after(0, lambda: self._set_busy(False)),
+        )
+
+        self._set_busy(True)
+        runner.start_i2i(job, cb)
