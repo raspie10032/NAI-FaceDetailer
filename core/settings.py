@@ -10,12 +10,15 @@ PRESETS_FILE = str(CONFIG_DIR / 'presets.json')
 ART_PRESETS_FILE = str(CONFIG_DIR / 'art_presets.json')
 LAST_SETTINGS_FILE = str(CONFIG_DIR / 'last_settings.json')
 
+# settings.py lives in core/, so the project root is one level up.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 DEFAULT_CONFIG = {
     "nai_token": "",
     "gguf_path": "",
-    "tipo_model_path": str(Path(__file__).parent / "models"),
+    "tipo_model_path": str(PROJECT_ROOT / "models"),
     "tipo_gpu_layers": 0,
-    "wildcard_dir": str(Path(__file__).parent / "wildcards"),
+    "wildcard_dir": str(PROJECT_ROOT / "wildcards"),
     "output_dir": str(Path.home() / "Downloads" / "NAI"),
     "language": "ko"
 }

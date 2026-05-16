@@ -1,7 +1,7 @@
 import customtkinter as ctk
 import os
 import threading
-from config import load_config, load_last_settings, save_last_settings
+from core.settings import load_config, load_last_settings, save_last_settings
 from i18n import t
 from tkinter import filedialog
 from ui.token import TokenScreen

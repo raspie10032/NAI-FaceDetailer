@@ -8,8 +8,9 @@ import time
 from PIL import Image
 from datetime import datetime
 from tkinter import filedialog
-from config import get_output_dir
-from nai_api import post_nai, zip_to_pil, build_inpaint_payload
+from core.settings import get_output_dir
+from core.nai_client import post_nai, zip_to_pil, build_inpaint_payload
+from core.face_pipeline import FacePipeline
 from ui.base import BaseScreen
 from i18n import t
 
@@ -26,9 +27,7 @@ class FaceDetailerScreen(BaseScreen):
         self._auto_neg = neg_prompt or "lowres, bad anatomy, bad hands, missing fingers, extra fingers"
         self._initial_prompt = prompt
         
-        self.yolo_model = None
-        self.eyes_model = None
-        self.sam_model = None
+        self.pipeline = FacePipeline()
         self.result_image = None
         self.result_raw = None
         self.is_busy = False
@@ -136,31 +135,6 @@ class FaceDetailerScreen(BaseScreen):
         img = ctk.CTkImage(light_image=self.result_image, dark_image=self.result_image, size=(int(w*ratio), int(h*ratio)))
         self.img_label.configure(image=img, text="")
 
-    def download_models(self):
-        from huggingface_hub import hf_hub_download
-        import urllib.request
-        cache_dir = os.path.expanduser("~/.nai_studio/models")
-        os.makedirs(cache_dir, exist_ok=True)
-
-        yolo_path = os.path.join(cache_dir, "face_yolov8n.pt")
-        if not os.path.exists(yolo_path):
-            print("[FaceDetailer] Downloading YOLO model...")
-            hf_hub_download('Bingsu/adetailer', 'face_yolov8n.pt', local_dir=cache_dir)
-
-        eyes_path = os.path.join(cache_dir, "full_eyes_detect_v1.pt")
-        if not os.path.exists(eyes_path):
-            print("[FaceDetailer] Downloading Eyes model...")
-            eyes_url = "https://huggingface.co/guon/hand-eyes/resolve/main/full_eyes_detect_v1.pt"
-            urllib.request.urlretrieve(eyes_url, eyes_path)
-
-        sam_path = os.path.join(cache_dir, "sam_b.pt")
-        if not os.path.exists(sam_path):
-            print("[FaceDetailer] Downloading SAM model...")
-            sam_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/sam_b.pt"
-            urllib.request.urlretrieve(sam_url, sam_path)
-
-        return yolo_path, sam_path, eyes_path
-
     def _set_status(self, text):
         self.after(0, lambda: self.controller.status_label.configure(text=text))
 
@@ -216,84 +190,11 @@ class FaceDetailerScreen(BaseScreen):
         def worker():
             import traceback as _tb
             try:
-                import numpy as np
-                import torch
-                from ultralytics import YOLO, SAM
-                yolo_path, sam_path, eyes_path = self.download_models()
+                mask_pil = self.pipeline.build_mask(input_image, conf=bbox_thresh)
 
-                # Device selection
-                device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
-                print(f"[FaceDetailer] Using device: {device}")
-
-                if not self.yolo_model or getattr(self, "_current_yolo_path", "") != yolo_path:
-                    print(f"[FaceDetailer] Loading YOLO: {yolo_path}")
-                    self.yolo_model = YOLO(yolo_path).to(device)
-                    self._current_yolo_path = yolo_path
-
-                # Detect faces (Primary)
-                results = self.yolo_model(input_image, conf=bbox_thresh, verbose=False)
-                bboxes = results[0].boxes.xyxy.cpu().numpy() if (results and len(results[0].boxes) > 0) else np.empty((0, 4))
-                
-                # Detect eyes (Secondary)
-                if eyes_path:
-                    if not self.eyes_model or getattr(self, "_current_eyes_path", "") != eyes_path:
-                        print(f"[FaceDetailer] Loading Eyes YOLO: {eyes_path}")
-                        self.eyes_model = YOLO(eyes_path).to(device)
-                        self._current_eyes_path = eyes_path
-                    
-                    eyes_results = self.eyes_model(input_image, conf=bbox_thresh, verbose=False)
-                    if eyes_results and len(eyes_results[0].boxes) > 0:
-                        eyes_bboxes = eyes_results[0].boxes.xyxy.cpu().numpy()
-                        bboxes = np.concatenate([bboxes, eyes_bboxes], axis=0)
-
-                if len(bboxes) == 0:
-                    print("[FaceDetailer] No detections.")
+                if mask_pil is None:
                     self._set_status("감지된 대상이 없습니다")
                     return
-
-                print(f"[FaceDetailer] {len(bboxes)} detection(s) combined.")
-
-                if not is_auto:
-                    self.after(0, lambda: self.controller.set_gen_btn_state("disabled", t("running_segmenting")))
-                self._set_status(f"{len(bboxes)}개 영역 분할 중")
-
-                img_np = np.array(input_image.convert("RGB"))
-                combined_mask = np.zeros(img_np.shape[:2], dtype=np.uint8)
-
-                if not self.sam_model or getattr(self, "_current_sam_path", "") != sam_path:
-                    print(f"[FaceDetailer] Loading SAM: {sam_path}")
-                    self.sam_model = SAM(sam_path).to(device)
-                    self._current_sam_path = sam_path
-                
-                bboxes_list = [b.tolist() for b in bboxes]
-                
-                try:
-                    sam_results = self.sam_model(img_np, bboxes=bboxes_list, verbose=False)
-                    if sam_results and sam_results[0].masks is not None:
-                        for mask_tensor in sam_results[0].masks.data:
-                            mask_np = mask_tensor.cpu().numpy()
-                            mask_img = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(
-                                input_image.size, Image.NEAREST
-                            )
-                            combined_mask = np.maximum(combined_mask, np.array(mask_img))
-                except Exception as sam_err:
-                    print(f"[FaceDetailer] SAM Error (falling back to bboxes): {sam_err}")
-                    for box in bboxes:
-                        x1, y1, x2, y2 = map(int, box)
-                        combined_mask[y1:y2, x1:x2] = 255
-
-                # NAI inpaint grid alignment (32px box, 8px step)
-                BOX_SIZE, GRID_STEP = 32, 8
-                h_m, w_m = combined_mask.shape
-                grid_mask = np.zeros_like(combined_mask)
-                
-                for y in range(0, h_m - BOX_SIZE + 1, GRID_STEP):
-                    for x in range(0, w_m - BOX_SIZE + 1, GRID_STEP):
-                        window = combined_mask[y:y + BOX_SIZE, x:x + BOX_SIZE]
-                        if window.size > 0 and np.mean(window) > (255 * 0.3):
-                            grid_mask[y:y + BOX_SIZE, x:x + BOX_SIZE] = 255
-
-                mask_pil = Image.fromarray(grid_mask)
 
                 if not is_auto:
                     self.after(0, lambda: self.controller.set_gen_btn_state("disabled", t("running_api")))

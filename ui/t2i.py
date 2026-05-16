@@ -7,18 +7,15 @@ import random
 import threading
 from PIL import Image
 from datetime import datetime
-from config import (
+from core.settings import (
     resolve_wildcards, load_presets, save_preset, delete_preset,
     load_art_presets, save_art_preset, delete_art_preset, get_output_dir
 )
-from nai_api import post_nai, zip_to_pil, build_t2i_payload, build_i2i_payload
+from core.nai_client import post_nai, zip_to_pil, build_t2i_payload, build_i2i_payload
 from ui.base import BaseScreen
 from i18n import t
-import tipo
-
-QUALITY_PREFIX = '2.0:: no lineart :: , 1.2:: artist:musouzuki :: , 0.9:: artist:chen_bin, artist:ciloranko :: , 0.85:: artist:kedama milk, artist:momoco, artist:zuizi :: , 0.8:: artist:pottsness :: , 0.85:: artist:ningen mame, artist:sho (sho lwlw) :: , 0.45:: artist:alt (ctrldel) :: , 0.9:: artist:quasarcake :: , 0.95:: artist:torino aqua :: , 0.85:: tianliang duohe fangdongye :: , 0.5:: artist:mika pikazo :: , 0.85:: artist:rhasta :: , 0.85:: artist:shacho (ko no ha) :: , cute, prism color, volumetric lighting, year 2023, year 2024, -2.0:: line art, straight-on :: , -3.0:: simple background, original, realistic, hat, fat, curvy, thick, buttons :: , -2.0:: multiple views, split screen, pale, letterbox, furry, :> :: , -1.0:: artist:bb (baalbuddy), artist:bkub (style) :: , -5.0:: artist collaboration :: , -1.0:: muscular ::'
-QUALITY_SUFFIX = 'masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, scenery'
-GOLDEN_NEGATIVE = 'upper teeth only, teeth, pink face, people, breast ptosis, text, copyright name, weibo logo, logo, jpeg artifacts, bad anatomy, missing fingers, extra digit, bad hands, fewer digits, deformed hand, fused fingers, extra fingers, mutated hands, poorly drawn hands, extra arms, extra legs, missing leg, missing arms, long neck, Humpbacked, mutation, deformed, multiple views, duplicate, error, signature, watermark, username, collage, poorly drawn face, printed shirt, ugly, morbid, mutilated, worst quality, low quality, normal quality, lowres'
+from core import tipo_engine as tipo
+from core import prompt_builder
 
 class T2IScreen(BaseScreen):
     def __init__(self, parent, controller):
@@ -407,20 +404,9 @@ class T2IScreen(BaseScreen):
                         self._set_expanded_prompt(working_p)
                     
                     # 2. Art Style & Golden Recipe
-                    final_neg = neg
-                    if style_name == "Golden Recipe v3.1":
-                        final_p = f"{QUALITY_PREFIX}, {working_p}, {QUALITY_SUFFIX}"
-                        final_neg = f"{GOLDEN_NEGATIVE}, {neg}"
-                    elif style_name != "None":
-                        style_tags = next((p["tags"] for p in self.art_presets if p["name"] == style_name), "")
-                        if style_tags:
-                            if style_mode == "Prepend":
-                                working_p = f"{style_tags}, {working_p}"
-                            else:
-                                working_p = f"{working_p}, {style_tags}"
-                        final_p = working_p
-                    else:
-                        final_p = working_p
+                    final_p, final_neg = prompt_builder.apply_style(
+                        working_p, neg, style_name, style_mode, self.art_presets
+                    )
 
                     # 4. Payload & API
                     self._set_status(f"NAI API 호출 중 ({count}/{auto_count if auto_count < 1000 else '∞'})")

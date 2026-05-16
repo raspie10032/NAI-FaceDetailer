@@ -7,7 +7,7 @@ import threading
 from PIL import Image
 from datetime import datetime
 from tkinter import filedialog
-from nai_api import post_nai, zip_to_pil, build_i2i_payload
+from core.nai_client import post_nai, zip_to_pil, build_i2i_payload
 from ui.base import BaseScreen
 from i18n import t
 
