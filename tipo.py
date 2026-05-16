@@ -3,7 +3,6 @@ import re
 import random
 import threading
 from pathlib import Path
-from llama_cpp import Llama
 
 # TIPO category tokens
 TIPO_TOKENS = ["<|special|>", "<|rating|>", "<|artist|>", "<|characters|>",
@@ -152,6 +151,7 @@ def load_tipo(model_path, gpu_layers=0):
             return _model_cache[model_path]
         
         try:
+            from llama_cpp import Llama
             # Force CPU (n_gpu_layers=0) on macOS to prevent Metal assertion conflicts with SAM/Torch
             # Increase n_ctx to 2048 to prevent llama_decode error -3 with long outputs
             llm = Llama(model_path=model_path, n_gpu_layers=0, n_ctx=2048, verbose=False)

@@ -1,14 +1,9 @@
-import os
-import base64
 import requests
 import zipfile
 import io
 import time
 import random
 from PIL import Image
-from dotenv import load_dotenv
-
-load_dotenv()
 
 _session = requests.Session()
 
@@ -85,24 +80,6 @@ def zip_to_pil(zip_bytes):
         image_bytes = zipped.read(zipped.infolist()[0])
         pil_img = Image.open(io.BytesIO(image_bytes))
         return pil_img, image_bytes
-
-def pil_to_tensor(img):
-    import torch
-    import numpy as np
-    img_np = np.array(img).astype(np.float32) / 255.0
-    return torch.from_numpy(img_np).unsqueeze(0)
-
-def tensor_to_pil(tensor, batch_index=0):
-    import numpy as np
-    img_np = tensor[batch_index].cpu().numpy()
-    img_np = (img_np * 255.0).clip(0, 255).astype(np.uint8)
-    return Image.fromarray(img_np)
-
-def get_nai_token():
-    token = os.getenv('NAI_ACCESS_TOKEN')
-    if not token:
-        print("Warning: NAI_ACCESS_TOKEN not found in environment variables.")
-    return token
 
 def build_t2i_payload(model, prompt, neg_prompt, width, height, steps, cfg, seed, sampler="k_euler_ancestral", scheduler="karras", cfg_rescale=0.0):
     is_v4 = "nai-diffusion-4" in model

@@ -6,8 +6,6 @@ from i18n import t
 from tkinter import filedialog
 from ui.token import TokenScreen
 from ui.t2i import T2IScreen
-from ui.i2i import I2IScreen
-from ui.inpaint import InpaintScreen
 from ui.face_detailer import FaceDetailerScreen
 
 class NAIStudioApp(ctk.CTk):

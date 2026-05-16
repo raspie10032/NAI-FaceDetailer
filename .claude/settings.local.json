@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git rm *)",
+      "Bash(cd \"C:\\\\Users\\\\seine\\\\Desktop\\\\NAI-FaceDetailer\\\\.claude\\\\worktrees\\\\sad-pascal-a45269\" && ls -d .venv 2>/dev/null; ls \"C:\\\\Users\\\\seine\\\\Desktop\\\\NAI-FaceDetailer\\\\.venv\" 2>/dev/null | head -1; which python; python --version)",
+      "Bash(\"C:\\\\Users\\\\seine\\\\Desktop\\\\NAI-FaceDetailer\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import customtkinter; print\\('ctk ok'\\)\")",
+      "Bash(\"C:\\\\Users\\\\seine\\\\Desktop\\\\NAI-FaceDetailer\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import main; import nai_api; print\\('Phase1 import OK:', hasattr\\(main,'NAIStudioApp'\\), hasattr\\(nai_api,'build_t2i_payload'\\)\\)\")",
+      "Bash(\"C:\\\\Users\\\\seine\\\\Desktop\\\\NAI-FaceDetailer\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import main, nai_api, tipo, config; print\\('Phase1 import OK:', hasattr\\(main,'NAIStudioApp'\\), hasattr\\(nai_api,'build_t2i_payload'\\)\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)"
+    ]
+  }
+}
