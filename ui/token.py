@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import filedialog
-from config import save_config
+from core.settings import save_config
 from ui.base import BaseScreen
 from i18n import t
 

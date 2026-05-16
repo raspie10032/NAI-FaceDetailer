@@ -7,8 +7,8 @@ cd "$SCRIPT_DIR"
 
 echo "=== NAI Studio Setup ==="
 
-# Python check
-PYTHON=$(command -v python3.11)
+# Python check (prefer python3, fall back to python)
+PYTHON=$(command -v python3 || command -v python || true)
 if [ -z "$PYTHON" ]; then
     echo "Error: Python 3.10+ is required but not found."
     exit 1
@@ -18,7 +18,6 @@ PYVER=$($PYTHON -c "import sys; print(f'{sys.version_info.major}.{sys.version_in
 PYMAJ=$($PYTHON -c "import sys; print(sys.version_info.major)")
 PYMIN=$($PYTHON -c "import sys; print(sys.version_info.minor)")
 echo "Found Python $PYVER"
-
 if [ "$PYMAJ" -lt 3 ] || { [ "$PYMAJ" -eq 3 ] && [ "$PYMIN" -lt 10 ]; }; then
     echo "Error: Python 3.10+ required (found $PYVER)"
     exit 1
@@ -28,53 +27,49 @@ fi
 if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
     $PYTHON -m venv .venv
-    echo "Virtual environment created at .venv/"
 else
     echo "Virtual environment already exists, reusing."
 fi
 
-source .venv/bin/activate
-pip install --upgrade pip -q
+PY=.venv/bin/python
+"$PY" -m pip install --upgrade pip -q
 
 OS=$(uname -s)
-ARCH=$(uname -m)
 
-# ── Base packages ──────────────────────────────────────────────
+# ── [1/3] Base packages (single source: requirements.txt) ──────
 echo ""
-echo "[1/4] Installing base packages..."
-pip install customtkinter pillow requests python-dotenv numpy ultralytics huggingface-hub opencv-python tipo-kgen -q
+echo "[1/3] Installing base packages..."
+"$PY" -m pip install -r requirements.txt -q
 echo "  Done."
 
-# ── PyTorch ────────────────────────────────────────────────────
+# ── [2/3] PyTorch (hardware-detected) ──────────────────────────
 echo ""
-echo "[2/4] Installing PyTorch..."
+echo "[2/3] Installing PyTorch..."
 if [ "$OS" = "Darwin" ]; then
     echo "  macOS detected (Metal support)."
-    pip install torch torchvision -q
+    "$PY" -m pip install torch torchvision -q
 elif command -v nvcc &>/dev/null 2>&1 || nvidia-smi &>/dev/null 2>&1; then
-    CUDA_VER=$(nvcc --version 2>/dev/null | grep -oE 'release [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+' | head -1)
-    echo "  NVIDIA CUDA detected ($CUDA_VER)."
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 -q
+    echo "  NVIDIA CUDA detected."
+    "$PY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 -q
 elif command -v rocminfo &>/dev/null 2>&1; then
     echo "  AMD ROCm detected."
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.0 -q
+    "$PY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.0 -q
 elif command -v sycl-ls &>/dev/null 2>&1; then
     echo "  Intel Arc (SYCL) detected."
-    pip install torch torchvision intel_extension_for_pytorch \
+    "$PY" -m pip install torch torchvision intel_extension_for_pytorch \
         --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/ -q
 else
     echo "  No GPU detected — CPU build."
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu -q
+    "$PY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu -q
 fi
 echo "  Done."
 
-# ── llama-cpp-python ───────────────────────────────────────────
+# ── [3/3] llama-cpp-python (TIPO backend, CPU-only) ────────────
 echo ""
-echo "[3/4] Installing llama-cpp-python (TIPO backend, CPU-only)..."
-pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -q
+echo "[3/3] Installing llama-cpp-python (TIPO backend)..."
+"$PY" -m pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -q
 echo "  Done."
 
-# Create models dir
 mkdir -p models wildcards output
 
 echo ""

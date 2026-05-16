@@ -5,8 +5,8 @@ import re
 # 앱 경로 추가
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import tipo
-from config import load_config
+from core import tipo_engine as tipo
+from core.settings import load_config
 
 def test():
     cfg = load_config()

@@ -1,24 +1,13 @@
 import customtkinter as ctk
-import os
-import time
-import base64
-import io
 import random
 import threading
-from PIL import Image
-from datetime import datetime
-from config import (
-    resolve_wildcards, load_presets, save_preset, delete_preset,
-    load_art_presets, save_art_preset, delete_art_preset, get_output_dir
+from core.settings import (
+    load_art_presets, save_art_preset, delete_art_preset,
 )
-from nai_api import post_nai, zip_to_pil, build_t2i_payload, build_i2i_payload
+from core.tipo_engine import TipoExpander
+from app.job_runner import T2IJob, JobCallbacks
 from ui.base import BaseScreen
 from i18n import t
-import tipo
-
-QUALITY_PREFIX = '2.0:: no lineart :: , 1.2:: artist:musouzuki :: , 0.9:: artist:chen_bin, artist:ciloranko :: , 0.85:: artist:kedama milk, artist:momoco, artist:zuizi :: , 0.8:: artist:pottsness :: , 0.85:: artist:ningen mame, artist:sho (sho lwlw) :: , 0.45:: artist:alt (ctrldel) :: , 0.9:: artist:quasarcake :: , 0.95:: artist:torino aqua :: , 0.85:: tianliang duohe fangdongye :: , 0.5:: artist:mika pikazo :: , 0.85:: artist:rhasta :: , 0.85:: artist:shacho (ko no ha) :: , cute, prism color, volumetric lighting, year 2023, year 2024, -2.0:: line art, straight-on :: , -3.0:: simple background, original, realistic, hat, fat, curvy, thick, buttons :: , -2.0:: multiple views, split screen, pale, letterbox, furry, :> :: , -1.0:: artist:bb (baalbuddy), artist:bkub (style) :: , -5.0:: artist collaboration :: , -1.0:: muscular ::'
-QUALITY_SUFFIX = 'masterpiece, best quality, amazing quality, very aesthetic, absurdres, newest, scenery'
-GOLDEN_NEGATIVE = 'upper teeth only, teeth, pink face, people, breast ptosis, text, copyright name, weibo logo, logo, jpeg artifacts, bad anatomy, missing fingers, extra digit, bad hands, fewer digits, deformed hand, fused fingers, extra fingers, mutated hands, poorly drawn hands, extra arms, extra legs, missing leg, missing arms, long neck, Humpbacked, mutation, deformed, multiple views, duplicate, error, signature, watermark, username, collage, poorly drawn face, printed shirt, ugly, morbid, mutilated, worst quality, low quality, normal quality, lowres'
 
 class T2IScreen(BaseScreen):
     def __init__(self, parent, controller):
@@ -214,12 +203,8 @@ class T2IScreen(BaseScreen):
 
         self.result_image = None
         self.result_raw = None
-        self.is_busy = False
-        self._tipo_llm = None
-        self._tipo_cache_key = None
-        self._tipo_expansion_cache = {}
-        self._tipo_inflight = {}
-        self._tipo_lock = threading.Lock()
+        self._tipo = None
+        self._tipo_key = None
 
     def _ui(self, callback):
         self.after(0, callback)
@@ -234,7 +219,6 @@ class T2IScreen(BaseScreen):
         self._ui(update)
 
     def _set_generating(self, generating):
-        self.is_busy = generating
         def update():
             if generating:
                 self.controller.set_gen_btn_state("disabled", "GENERATING")
@@ -242,71 +226,14 @@ class T2IScreen(BaseScreen):
                 self.controller.set_gen_btn_state("normal")
         self._ui(update)
 
-    def _get_tipo_llm(self):
+    def _tipo_expander(self):
         model_path = self.config.get("tipo_model_path", "")
         gpu_layers = int(self.config.get("tipo_gpu_layers", -1))
-        cache_key = (model_path, gpu_layers)
-
-        with self._tipo_lock:
-            if self._tipo_llm is not None and self._tipo_cache_key == cache_key:
-                return self._tipo_llm
-
-        llm = tipo.load_tipo(model_path, gpu_layers)
-        with self._tipo_lock:
-            self._tipo_llm = llm
-            self._tipo_cache_key = cache_key
-        return llm
-
-    def _expand_tipo_prompt(self, prompt, rating, temperature, ban_tags=None, seed=None):
-        # Include seed in cache key to force new expansion if seed is different
-        cache_key = (prompt, rating, float(temperature), self.config.get("tipo_model_path", ""), int(self.config.get("tipo_gpu_layers", -1)), ban_tags, seed)
-        with self._tipo_lock:
-            cached = self._tipo_expansion_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-        with self._tipo_lock:
-            inflight = self._tipo_inflight.get(cache_key)
-            if inflight is None:
-                inflight = threading.Event()
-                self._tipo_inflight[cache_key] = inflight
-                starter = True
-            else:
-                starter = False
-
-        if not starter:
-            inflight.wait()
-            with self._tipo_lock:
-                return self._tipo_expansion_cache.get(cache_key, prompt)
-
-        llm = self._get_tipo_llm()
-        if not llm:
-            with self._tipo_lock:
-                self._tipo_expansion_cache[cache_key] = prompt
-                inflight = self._tipo_inflight.pop(cache_key, None)
-                if inflight is not None:
-                    inflight.set()
-            return prompt
-
-        try:
-            expanded = tipo.expand_prompt(llm, prompt, rating=rating, temperature=temperature, seed=seed)
-            
-            # Filter Ban Tags
-            if ban_tags:
-                ban_list = [t.strip().lower() for t in ban_tags.split(",") if t.strip()]
-                if ban_list:
-                    tags = [t.strip() for t in expanded.split(",")]
-                    filtered = [t for t in tags if t.lower() not in ban_list]
-                    expanded = ", ".join(filtered)
-
-            with self._tipo_lock:
-                self._tipo_expansion_cache[cache_key] = expanded
-            return expanded
-        finally:
-            with self._tipo_lock:
-                inflight = self._tipo_inflight.pop(cache_key, None)
-                if inflight is not None:
-                    inflight.set()
+        key = (model_path, gpu_layers)
+        if self._tipo is None or self._tipo_key != key:
+            self._tipo = TipoExpander(model_path, gpu_layers)
+            self._tipo_key = key
+        return self._tipo
 
     def display_result(self, pil_img, raw_bytes):
         self.result_image = pil_img
@@ -333,148 +260,85 @@ class T2IScreen(BaseScreen):
     def run_tipo_only(self):
         p = self.prompt_txt.get("1.0", "end-1c")
         rating = self.rating_var.get()
-        temp = 1.2
         ban_tags = self.ban_tags_entry.get()
-        tipo_seed = random.randint(0, 2**31-1)
-        
+        tipo_seed = random.randint(0, 2**31 - 1)
+        expander = self._tipo_expander()
+
         def run():
             try:
                 self._set_status("TIPO 추론 중")
-                res = self._expand_tipo_prompt(p, rating=rating, temperature=temp, ban_tags=ban_tags, seed=tipo_seed)
+                res = expander.expand(p, rating=rating, temperature=1.2,
+                                      ban_tags=ban_tags, seed=tipo_seed)
                 self._set_expanded_prompt(res)
             finally:
                 self._set_status("Ready")
         threading.Thread(target=run, daemon=True).start()
 
     def generate(self):
-        if hasattr(self, "is_generating") and self.is_generating:
-            self.is_generating = False
+        runner = self.controller.job_runner
+        if runner.running:
+            runner.stop()
             self._set_status("Stopping")
             return
 
         token = self.config.get("nai_token")
-        if not token: return
-        
+        if not token:
+            return
+
         shared = self.controller.shared
-        model = shared["model_var"].get()
         res = shared["res_var"].get().split('x')
-        w, h = int(res[0]), int(res[1])
-        steps, cfg = int(shared["steps_var"].get()), float(shared["cfg_var"].get())
-        
-        prompt = self.prompt_txt.get("1.0", "end-1c")
-        neg = self.neg_prompt_txt.get("1.0", "end-1c") if hasattr(self, 'neg_prompt_txt') else "lowres"
-        
-        use_tipo = self.tipo_switch.get()
-        rating = self.rating_var.get()
-        temp = 1.2
-        ban_tags = self.ban_tags_entry.get()
-        
-        use_wf = self.workflow_switch.get()
-        
-        style_name = self.style_var.get()
-        style_mode = self.style_mode_var.get()
-        
-        use_auto = self.auto_gen_switch.get()
+        try:
+            seed = int(shared["seed_var"].get())
+        except ValueError:
+            seed = -1
         auto_count_str = self.auto_count_var.get()
         auto_count = 999999 if auto_count_str == "∞" else int(auto_count_str)
         try:
             auto_delay = float(self.auto_delay_entry.get())
-        except:
+        except ValueError:
             auto_delay = 2.0
 
-        self.is_generating = True
+        job = T2IJob(
+            token=token,
+            model=shared["model_var"].get(),
+            width=int(res[0]), height=int(res[1]),
+            steps=int(shared["steps_var"].get()),
+            cfg=float(shared["cfg_var"].get()),
+            seed=seed,
+            sampler=shared["sampler_var"].get(),
+            scheduler=shared["scheduler_var"].get(),
+            cfg_rescale=float(shared["cfg_rescale_var"].get()),
+            prompt=self.prompt_txt.get("1.0", "end-1c"),
+            neg_prompt=self.neg_prompt_txt.get("1.0", "end-1c"),
+            wildcard_dir=self.config.get("wildcard_dir"),
+            use_tipo=bool(self.tipo_switch.get()),
+            rating=self.rating_var.get(),
+            tipo_temp=1.2,
+            ban_tags=self.ban_tags_entry.get(),
+            style_name=self.style_var.get(),
+            style_mode=self.style_mode_var.get(),
+            art_presets=self.art_presets,
+            face_detail=bool(self.workflow_switch.get()),
+            face_model=shared["face_model_var"].get(),
+            auto=bool(self.auto_gen_switch.get()),
+            count=auto_count,
+            delay=auto_delay,
+        )
+
+        cb = JobCallbacks(
+            on_status=lambda text: self._set_status(text),
+            on_expanded=lambda text: self._set_expanded_prompt(text),
+            on_result=lambda stage, pil, raw: self._ui(
+                lambda: self.display_result(pil, raw)),
+            on_error=lambda msg: self._set_status(f"Error: {msg[:20]}"),
+            on_done=lambda: self._set_generating(False),
+        )
+
         self._set_generating(True)
-
-        def worker():
-            count = 0
-            try:
-                while self.is_generating and count < auto_count:
-                    count += 1
-                    # Generation Seed
-                    seed = int(shared["seed_var"].get())
-                    if seed == -1: seed = random.randint(0, 2**31-1)
-                    
-                    # TIPO Seed (Each iteration gets a fresh seed for diversity)
-                    tipo_seed = random.randint(0, 2**31-1)
-                    
-                    # 0. Wildcards
-                    working_p = resolve_wildcards(prompt, self.config.get("wildcard_dir"))
-                    
-                    # 1. TIPO
-                    if use_tipo:
-                        self._set_status(f"TIPO 추론 중 ({count}/{auto_count if auto_count < 1000 else '∞'})")
-                        working_p = self._expand_tipo_prompt(working_p, rating=rating, temperature=temp, ban_tags=ban_tags, seed=tipo_seed)
-                        self._set_expanded_prompt(working_p)
-                    
-                    # 2. Art Style & Golden Recipe
-                    final_neg = neg
-                    if style_name == "Golden Recipe v3.1":
-                        final_p = f"{QUALITY_PREFIX}, {working_p}, {QUALITY_SUFFIX}"
-                        final_neg = f"{GOLDEN_NEGATIVE}, {neg}"
-                    elif style_name != "None":
-                        style_tags = next((p["tags"] for p in self.art_presets if p["name"] == style_name), "")
-                        if style_tags:
-                            if style_mode == "Prepend":
-                                working_p = f"{style_tags}, {working_p}"
-                            else:
-                                working_p = f"{working_p}, {style_tags}"
-                        final_p = working_p
-                    else:
-                        final_p = working_p
-
-                    # 4. Payload & API
-                    self._set_status(f"NAI API 호출 중 ({count}/{auto_count if auto_count < 1000 else '∞'})")
-                    payload = build_t2i_payload(model, final_p, final_neg, w, h, steps, cfg, seed)
-                    
-                    # Force sync for V4
-                    if "parameters" in payload and "v4_prompt" in payload["parameters"]:
-                        payload["parameters"]["v4_prompt"]["caption"]["base_caption"] = final_p
-                    
-                    zip_bytes = post_nai(token, payload)
-                    pil_img, raw = zip_to_pil(zip_bytes)
-                    
-                    self._ui(lambda pil_img=pil_img, raw=raw: self.display_result(pil_img, raw))
-                    self.auto_save(raw)
-
-                    # 6. WF (FaceDetailer)
-                    if use_wf:
-                        # Auto Face Detailer
-                        self.controller.pipeline_event.clear()
-                        # Pass final_p (styled/wrapped) instead of working_p to ensure style consistency
-                        self._ui(lambda pil_img=pil_img, fp=final_p, fn=final_neg: self.controller.show_screen("FaceDetailer", image=pil_img, auto_run=True, prompt=fp, neg_prompt=fn))
-                        
-                        # Wait for FaceDetailer to finish
-                        self.controller.pipeline_event.wait()
-                        # Small buffer to ensure everything is updated
-                        time.sleep(1)
-
-                    if not use_auto:
-                        break
-                    
-                    if count < auto_count:
-                        self._set_status(f"대기 중 ({int(auto_delay)}초)")
-                        time.sleep(auto_delay)
-
-            except Exception as e:
-                print(f"Error: {e}")
-                self._set_status(f"Error: {str(e)[:20]}")
-                time.sleep(5)
-            finally:
-                self.is_generating = False
-                self._set_generating(False)
-                self._set_status("Ready")
-
-        threading.Thread(target=worker, daemon=True).start()
+        runner.start_t2i(job, self._tipo_expander(), cb)
 
     def send_to_i2i(self):
         self.controller.show_screen("I2I", image=self.result_image)
-
-    def auto_save(self, raw):
-        base_dir = get_output_dir()
-        d = os.path.join(base_dir, datetime.now().strftime("%Y-%m-%d"))
-        os.makedirs(d, exist_ok=True)
-        filename = f"NAI_{int(time.time())}.png"
-        with open(os.path.join(d, filename), "wb") as f: f.write(raw)
 
     def add_art_preset(self):
         name = self.new_style_entry.get().strip()

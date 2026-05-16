@@ -1,4 +1,4 @@
-from config import load_config
+from core.settings import load_config
 
 STRINGS = {
     "en": {

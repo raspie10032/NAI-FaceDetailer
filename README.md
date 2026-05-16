@@ -8,7 +8,8 @@ Built with [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) — s
 - **Dual-Stage Detection:** Internal use of both YOLOv8n (face) and a custom eye detector (`full_eyes_detect_v1.pt`) for superior results in character focus.
 - **Refined TIPO (KGen-style):** High-impact tag expansion with aggressive pruning and a strict 50-tag limit for cleaner, more effective prompts.
 - **Persistent Settings:** Automatic session saving and loading for Model, Resolution, CFG, and all key parameters.
-- **Unified UI:** Slimmed down, focused interface with a fixed-size, reliable sidebar. (I2I and Inpaint tabs have been removed to optimize the v0.2.0 workflow).
+- **Layered architecture:** UI-free `core/` logic layer (prompt building, TIPO, face pipeline, NAI client) with a single `JobRunner` orchestrating the T2I → Face Detail pipeline on one worker thread — no cross-screen handshakes.
+- **Full tab set:** T2I, I2I, Inpaint, and Face Detailer, all sharing core parameters via a fixed-size sidebar.
 
 ---
 

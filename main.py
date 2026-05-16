@@ -1,7 +1,7 @@
 import customtkinter as ctk
 import os
-import threading
-from config import load_config, load_last_settings, save_last_settings
+from core.settings import load_config, load_last_settings, save_last_settings
+from app.job_runner import JobRunner
 from i18n import t
 from tkinter import filedialog
 from ui.token import TokenScreen
@@ -20,7 +20,7 @@ class NAIStudioApp(ctk.CTk):
         self.configure(fg_color=("#f0f0f0", "#0f0f0f"))
 
         self.config = load_config()
-        self.pipeline_event = threading.Event()
+        self.job_runner = JobRunner()
 
         # Layout: Sidebar (fixed), Main (expanded)
         self.grid_rowconfigure(0, weight=1)
@@ -36,7 +36,7 @@ class NAIStudioApp(ctk.CTk):
         ctk.CTkLabel(self.sidebar, text="NAI FaceDetailer", font=ctk.CTkFont(size=32, weight="bold")).pack(pady=(60, 50))
 
         self.nav_buttons = {}
-        for label, name in [("T2I", "T2I"), ("Face Detailer", "FaceDetailer")]:
+        for label, name in [("T2I", "T2I"), ("I2I", "I2I"), ("Inpaint", "Inpaint"), ("Face Detailer", "FaceDetailer")]:
             btn = ctk.CTkButton(self.sidebar, text=label, anchor="w", fg_color="transparent", 
                                 hover_color=("gray75", "gray30"), height=60, corner_radius=10,
                                 font=ctk.CTkFont(size=18, weight="bold"),
@@ -110,7 +110,6 @@ class NAIStudioApp(ctk.CTk):
         self.current_frame = None
         self.result_image = None
         self.result_raw = None
-        self._pipeline_done_callback = None
 
         self.show_screen("T2I")
 
@@ -136,7 +135,8 @@ class NAIStudioApp(ctk.CTk):
             v.configure(fg_color=("gray85", "gray35") if k == name else "transparent")
 
         if name not in self.frames:
-            cls = {"Token": TokenScreen, "T2I": T2IScreen, "FaceDetailer": FaceDetailerScreen}.get(name)
+            cls = {"Token": TokenScreen, "T2I": T2IScreen, "I2I": I2IScreen,
+                   "Inpaint": InpaintScreen, "FaceDetailer": FaceDetailerScreen}.get(name)
             if not cls: return
             frame = cls(parent=self.main_container, controller=self, **kwargs)
             self.frames[name] = frame
@@ -162,8 +162,8 @@ class NAIStudioApp(ctk.CTk):
                 self.sidebar_bottom.pack_forget() # Re-pack settings below
                 self.sidebar_bottom.pack(side="bottom", fill="x", pady=10)
             
-            # Sync button state with screen's busy status
-            if hasattr(frame, "is_busy") and frame.is_busy:
+            # Single source of truth: the shared JobRunner.
+            if self.job_runner.running:
                 self.set_gen_btn_state("disabled", t("generating"))
             else:
                 self.set_gen_btn_state("normal")
