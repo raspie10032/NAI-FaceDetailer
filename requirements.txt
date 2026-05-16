@@ -1,11 +1,10 @@
+# Pure-pip dependencies (installed via `pip install -r requirements.txt`).
+# torch and llama-cpp-python are installed separately by setup.sh/setup.bat
+# because they need hardware-specific package indexes.
 customtkinter
 pillow
 requests
-python-dotenv
 numpy
-llama-cpp-python
 ultralytics
-segment-anything
 huggingface-hub
-torch
 opencv-python

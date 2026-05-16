@@ -1,11 +1,11 @@
 @echo off
 cd /d "%~dp0"
 
-if not exist ".venv" (
+if not exist ".venv\Scripts\python.exe" (
     echo Virtual environment not found. Run setup.bat first.
     pause
     exit /b 1
 )
 
-call .venv\Scripts\activate.bat
-python main.py %*
+:: Call the venv interpreter directly — no activation needed.
+.venv\Scripts\python.exe main.py %*
