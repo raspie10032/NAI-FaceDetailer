@@ -221,3 +221,62 @@ def expand_prompt(llm, prompt: str, rating="safe", max_tokens=384, temperature=0
     except Exception as e:
         print(f"[TIPO] Expansion error: {e}")
         return prompt
+
+
+def _filter_ban_tags(expanded: str, ban_tags) -> str:
+    if not ban_tags:
+        return expanded
+    ban = [b.strip().lower() for b in ban_tags.split(",") if b.strip()]
+    if not ban:
+        return expanded
+    tags = [tg.strip() for tg in expanded.split(",")]
+    return ", ".join(tg for tg in tags if tg.lower() not in ban)
+
+
+class TipoExpander:
+    """Stateful TIPO wrapper: caches the loaded LLM and expansion results.
+
+    Replaces the per-widget cache/inflight machinery that used to live in
+    T2IScreen. The inflight-dedup was only needed for concurrent expansions;
+    with a single job thread it is unnecessary, so this is intentionally
+    simpler.
+    """
+
+    def __init__(self, model_path, gpu_layers):
+        self.model_path = model_path or ""
+        self.gpu_layers = int(gpu_layers)
+        self._llm = None
+        self._loaded_key = None
+        self._cache = {}
+        self._lock = threading.Lock()
+
+    def _llm_for(self):
+        key = (self.model_path, self.gpu_layers)
+        with self._lock:
+            if self._llm is not None and self._loaded_key == key:
+                return self._llm
+        llm = load_tipo(self.model_path, self.gpu_layers)
+        with self._lock:
+            self._llm = llm
+            self._loaded_key = key
+        return llm
+
+    def expand(self, prompt, rating="safe", temperature=1.2, ban_tags=None, seed=None):
+        cache_key = (prompt, rating, float(temperature),
+                     self.model_path, self.gpu_layers, ban_tags, seed)
+        with self._lock:
+            if cache_key in self._cache:
+                return self._cache[cache_key]
+
+        llm = self._llm_for()
+        if not llm:
+            with self._lock:
+                self._cache[cache_key] = prompt
+            return prompt
+
+        expanded = expand_prompt(llm, prompt, rating=rating,
+                                 temperature=temperature, seed=seed)
+        expanded = _filter_ban_tags(expanded, ban_tags)
+        with self._lock:
+            self._cache[cache_key] = expanded
+        return expanded

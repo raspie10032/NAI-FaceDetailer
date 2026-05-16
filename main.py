@@ -1,7 +1,7 @@
 import customtkinter as ctk
 import os
-import threading
 from core.settings import load_config, load_last_settings, save_last_settings
+from app.job_runner import JobRunner
 from i18n import t
 from tkinter import filedialog
 from ui.token import TokenScreen
@@ -18,7 +18,7 @@ class NAIStudioApp(ctk.CTk):
         self.configure(fg_color=("#f0f0f0", "#0f0f0f"))
 
         self.config = load_config()
-        self.pipeline_event = threading.Event()
+        self.job_runner = JobRunner()
 
         # Layout: Sidebar (fixed), Main (expanded)
         self.grid_rowconfigure(0, weight=1)
@@ -108,7 +108,6 @@ class NAIStudioApp(ctk.CTk):
         self.current_frame = None
         self.result_image = None
         self.result_raw = None
-        self._pipeline_done_callback = None
 
         self.show_screen("T2I")
 
