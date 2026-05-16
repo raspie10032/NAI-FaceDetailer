@@ -21,7 +21,6 @@ class FaceDetailerScreen(BaseScreen):
         self.input_image = image
         self.result_image = None
         self.result_raw = None
-        self.is_busy = False
 
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
@@ -113,7 +112,6 @@ class FaceDetailerScreen(BaseScreen):
         self.after(0, lambda: self.controller.status_label.configure(text=text))
 
     def _set_busy(self, busy):
-        self.is_busy = busy
         if busy:
             self.controller.set_gen_btn_state("disabled", t("running_detecting"))
         else:

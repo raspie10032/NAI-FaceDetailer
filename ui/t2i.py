@@ -203,7 +203,6 @@ class T2IScreen(BaseScreen):
 
         self.result_image = None
         self.result_raw = None
-        self.is_busy = False
         self._tipo = None
         self._tipo_key = None
 
@@ -220,7 +219,6 @@ class T2IScreen(BaseScreen):
         self._ui(update)
 
     def _set_generating(self, generating):
-        self.is_busy = generating
         def update():
             if generating:
                 self.controller.set_gen_btn_state("disabled", "GENERATING")

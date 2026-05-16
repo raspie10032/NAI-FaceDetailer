@@ -162,8 +162,8 @@ class NAIStudioApp(ctk.CTk):
                 self.sidebar_bottom.pack_forget() # Re-pack settings below
                 self.sidebar_bottom.pack(side="bottom", fill="x", pady=10)
             
-            # Sync button state with screen's busy status
-            if hasattr(frame, "is_busy") and frame.is_busy:
+            # Single source of truth: the shared JobRunner.
+            if self.job_runner.running:
                 self.set_gen_btn_state("disabled", t("generating"))
             else:
                 self.set_gen_btn_state("normal")

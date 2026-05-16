@@ -21,7 +21,6 @@ class InpaintScreen(BaseScreen):
         self.display_w = 600
         self.display_h = 600
         self.tk_overlay_img = None
-        self.is_busy = False
 
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
@@ -183,7 +182,6 @@ class InpaintScreen(BaseScreen):
         self.after(0, lambda: self.controller.status_label.configure(text=text))
 
     def _set_busy(self, busy):
-        self.is_busy = busy
         self.controller.set_gen_btn_state("disabled", t("generating")) if busy \
             else self.controller.set_gen_btn_state("normal")
 
