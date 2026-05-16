@@ -147,15 +147,15 @@ def load_tipo(model_path, gpu_layers=0):
 
     if not os.path.exists(model_path): return None
 
+    cache_key = (model_path, gpu_layers)
     with _cache_lock:
-        if model_path in _model_cache:
-            return _model_cache[model_path]
-        
+        if cache_key in _model_cache:
+            return _model_cache[cache_key]
+
         try:
-            # Force CPU (n_gpu_layers=0) on macOS to prevent Metal assertion conflicts with SAM/Torch
-            # Increase n_ctx to 2048 to prevent llama_decode error -3 with long outputs
-            llm = Llama(model_path=model_path, n_gpu_layers=0, n_ctx=2048, verbose=False)
-            _model_cache[model_path] = llm
+            # n_ctx=2048 prevents llama_decode error -3 with long outputs
+            llm = Llama(model_path=model_path, n_gpu_layers=gpu_layers, n_ctx=2048, verbose=False)
+            _model_cache[cache_key] = llm
             return llm
         except Exception as e:
             print(f"[TIPO] Load error: {e}")

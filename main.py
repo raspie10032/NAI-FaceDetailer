@@ -177,8 +177,8 @@ class NAIStudioApp(ctk.CTk):
     def open_output_dir(self):
         import subprocess
         import platform
-        path = self.config.get("output_dir", "./output")
-        path = os.path.abspath(path)
+        from config import get_output_dir
+        path = os.path.abspath(get_output_dir())
         if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
         

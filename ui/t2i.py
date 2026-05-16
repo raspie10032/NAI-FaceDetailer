@@ -11,7 +11,7 @@ from config import (
     resolve_wildcards, load_presets, save_preset, delete_preset,
     load_art_presets, save_art_preset, delete_art_preset, get_output_dir
 )
-from nai_api import post_nai, zip_to_pil, build_t2i_payload, build_i2i_payload
+from nai_api import post_nai, zip_to_pil, build_t2i_payload
 from ui.base import BaseScreen
 from i18n import t
 import tipo
@@ -209,8 +209,6 @@ class T2IScreen(BaseScreen):
         r_btn_row.grid(row=1, column=0, sticky="ew", pady=10)
         self.save_btn = ctk.CTkButton(r_btn_row, text=t("save_short"), state="disabled", command=self.controller.save_result)
         self.save_btn.pack(side="left", expand=True, padx=5)
-        self.edit_btn = ctk.CTkButton(r_btn_row, text=t("send_to_edit"), state="disabled", command=self.send_to_i2i)
-        self.edit_btn.pack(side="left", expand=True, padx=5)
 
         self.result_image = None
         self.result_raw = None
@@ -244,7 +242,7 @@ class T2IScreen(BaseScreen):
 
     def _get_tipo_llm(self):
         model_path = self.config.get("tipo_model_path", "")
-        gpu_layers = int(self.config.get("tipo_gpu_layers", -1))
+        gpu_layers = int(self.config.get("tipo_gpu_layers", 0))
         cache_key = (model_path, gpu_layers)
 
         with self._tipo_lock:
@@ -259,7 +257,7 @@ class T2IScreen(BaseScreen):
 
     def _expand_tipo_prompt(self, prompt, rating, temperature, ban_tags=None, seed=None):
         # Include seed in cache key to force new expansion if seed is different
-        cache_key = (prompt, rating, float(temperature), self.config.get("tipo_model_path", ""), int(self.config.get("tipo_gpu_layers", -1)), ban_tags, seed)
+        cache_key = (prompt, rating, float(temperature), self.config.get("tipo_model_path", ""), int(self.config.get("tipo_gpu_layers", 0)), ban_tags, seed)
         with self._tipo_lock:
             cached = self._tipo_expansion_cache.get(cache_key)
         if cached is not None:
@@ -312,7 +310,6 @@ class T2IScreen(BaseScreen):
         self.result_image = pil_img
         self.result_raw = raw_bytes
         self.save_btn.configure(state="normal")
-        self.edit_btn.configure(state="normal")
         self._render_image()
 
     def _render_result(self): # Compatibility
@@ -465,9 +462,6 @@ class T2IScreen(BaseScreen):
                 self._set_status("Ready")
 
         threading.Thread(target=worker, daemon=True).start()
-
-    def send_to_i2i(self):
-        self.controller.show_screen("I2I", image=self.result_image)
 
     def auto_save(self, raw):
         base_dir = get_output_dir()

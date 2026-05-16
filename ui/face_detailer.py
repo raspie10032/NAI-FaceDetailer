@@ -341,7 +341,7 @@ class FaceDetailerScreen(BaseScreen):
 
     def auto_save(self, raw_bytes):
         if not raw_bytes: return
-        base_dir = os.path.join(os.path.expanduser("~"), "Downloads", "NAI", "FaceDetailer")
+        base_dir = get_output_dir("FaceDetailer")
         date_str = datetime.now().strftime("%Y-%m-%d")
         full_path = os.path.join(base_dir, date_str)
         os.makedirs(full_path, exist_ok=True)

@@ -4,7 +4,7 @@ import re
 import random
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / 'nai_studio'
+CONFIG_DIR = Path.home() / '.nai_studio'
 CONFIG_FILE = str(CONFIG_DIR / 'config.json')
 PRESETS_FILE = str(CONFIG_DIR / 'presets.json')
 ART_PRESETS_FILE = str(CONFIG_DIR / 'art_presets.json')
@@ -12,7 +12,6 @@ LAST_SETTINGS_FILE = str(CONFIG_DIR / 'last_settings.json')
 
 DEFAULT_CONFIG = {
     "nai_token": "",
-    "gguf_path": "",
     "tipo_model_path": str(Path(__file__).parent / "models"),
     "tipo_gpu_layers": 0,
     "wildcard_dir": str(Path(__file__).parent / "wildcards"),
@@ -50,7 +49,7 @@ DEFAULT_PRESETS = {
 }
 
 def get_output_dir(subfolder=None):
-    base = os.path.join(os.path.expanduser("~"), "Downloads", "NAI")
+    base = load_config().get("output_dir") or DEFAULT_CONFIG["output_dir"]
     if subfolder:
         return os.path.join(base, subfolder)
     return base

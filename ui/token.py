@@ -49,15 +49,6 @@ class TokenScreen(BaseScreen):
         )
         self.lang_dropdown.pack(fill="x", pady=(0, 15))
 
-        # GGUF Path
-        ctk.CTkLabel(form, text=t("gguf_label")).pack(anchor="w")
-        gguf_row = ctk.CTkFrame(form, fg_color="transparent")
-        gguf_row.pack(fill="x", pady=(0, 15))
-        self.gguf_entry = ctk.CTkEntry(gguf_row)
-        self.gguf_entry.pack(side="left", fill="x", expand=True)
-        self.gguf_entry.insert(0, self.config.get("gguf_path", ""))
-        ctk.CTkButton(gguf_row, text=t("browse"), width=80, command=self.browse_gguf).pack(side="right", padx=(5, 0))
-
         # TIPO Model Path
         ctk.CTkLabel(form, text=t("tipo_label")).pack(anchor="w")
         tipo_row = ctk.CTkFrame(form, fg_color="transparent")
@@ -102,12 +93,6 @@ class TokenScreen(BaseScreen):
         save_btn = ctk.CTkButton(bottom, text=t("save_settings"), height=40, command=self.save)
         save_btn.pack(pady=(0, 5))
 
-    def browse_gguf(self):
-        path = filedialog.askopenfilename(filetypes=[("GGUF files", "*.gguf"), ("All files", "*.*")])
-        if path:
-            self.gguf_entry.delete(0, "end")
-            self.gguf_entry.insert(0, path)
-
     def browse_tipo(self):
         import os
         models_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
@@ -139,12 +124,11 @@ class TokenScreen(BaseScreen):
 
         self.config["nai_token"] = self.token_entry.get()
         self.config["language"] = new_lang_code
-        self.config["gguf_path"] = self.gguf_entry.get()
         self.config["tipo_model_path"] = self.tipo_entry.get()
         try:
             self.config["tipo_gpu_layers"] = int(self.tipo_gpu_entry.get())
         except ValueError:
-            self.config["tipo_gpu_layers"] = -1
+            self.config["tipo_gpu_layers"] = 0
         self.config["wildcard_dir"] = self.wc_entry.get()
         self.config["output_dir"] = self.out_entry.get()
         

@@ -166,6 +166,14 @@ def build_inpaint_payload(model, prompt, neg_prompt, width, height, steps, cfg, 
     is_v4 = "nai-diffusion-4" in model
     is_v45 = "4-5" in model
     inpaint_model = model if model.endswith("-inpainting") else model + "-inpainting"
+
+    width, height = int(width), int(height)
+    steps = int(steps)
+    cfg = float(cfg)
+    seed = int(seed)
+    strength = float(strength)
+    cfg_rescale = float(cfg_rescale)
+
     params = {
         "width": width, "height": height, "n_samples": 1, "seed": seed,
         "sampler": sampler, "steps": steps, "scale": cfg,
